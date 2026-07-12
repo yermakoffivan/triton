@@ -71,8 +71,8 @@ TMemAllocation getTmemAllocSizes(MemDescType memDescType) {
   auto S = [&](StringRef str) { return StringAttr::get(ctx, str); };
   auto kRow = S("row");
   auto kCol = S("col");
-  auto shape = gpu::dropPipeliningDim(memDescType.getShape(),
-                                      memDescType.getEncoding());
+  auto shape =
+      gpu::dropPipeliningDim(memDescType.getShape(), memDescType.getEncoding());
   auto ll = toLinearLayout(shape, memDescType.getEncoding());
   auto bitwidth = memDescType.getElementTypeBitWidth();
   int nRow = ll.getInDimSize(kRow);
