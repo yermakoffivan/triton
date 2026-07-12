@@ -1376,10 +1376,9 @@ LinearLayout toLinearLayout(RankedTensorType type) {
 LinearLayout toLinearLayout(MemDescType type) {
   // Pass in the allocation shape. Then when using invertAndCompose it will
   // trim the allocationShape to the shape if they are different.
-  // We also remove the first dimension of the allocationShape if there was a
-  // call to memdesc_index
-  auto shape = type.getAllocShape().take_back(type.getRank());
-  return toLinearLayout(shape, type.getEncoding());
+  return toLinearLayout(
+      dropPipeliningDim(type.getAllocShape(), type.getEncoding()),
+      type.getEncoding());
 }
 
 LinearLayout toLinearLayout(TensorOrMemDesc type) {
@@ -1413,8 +1412,9 @@ LinearLayout paddedLinearLayout(ArrayRef<int64_t> shape, Attribute encoding) {
 }
 
 LinearLayout paddedLinearLayout(MemDescType type) {
-  auto shape = type.getAllocShape().take_back(type.getRank());
-  return paddedLinearLayout(shape, type.getEncoding());
+  return paddedLinearLayout(
+      dropPipeliningDim(type.getAllocShape(), type.getEncoding()),
+      type.getEncoding());
 }
 
 LinearLayout getLayoutWithinBlock(const LinearLayout &layout) {
