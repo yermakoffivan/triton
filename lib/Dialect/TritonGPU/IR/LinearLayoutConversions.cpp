@@ -1374,8 +1374,30 @@ LinearLayout toLinearLayout(RankedTensorType type) {
 }
 
 LinearLayout toLinearLayout(MemDescType type) {
-  // Pass in the allocation shape. Then when using invertAndCompose it will
-  // trim the allocationShape to the shape if they are different.
+  // For TMEM we instantiate the subview directly. This is possible
+  // as TMEM has no swizzling.
+  if (isa<TensorMemoryEncodingAttr>(type.getEncoding())) {
+    auto shape = dropPipeliningDim(type.getShape(), type.getEncoding());
+    auto allocShape =
+        dropPipeliningDim(type.getAllocShape(), type.getEncoding());
+    auto ll = toLinearLayout(allocShape, type.getEncoding());
+    // Trim the shape
+    for (auto [dim, size] : llvm::zip_equal(ll.getOutDimNames(), shape))
+      ll = ll.resizeOutDim(dim, size);
+
+    auto kCol = StringAttr::get(type.getContext(), "col");
+    int nColBases = ll.getInDimSizeLog2(kCol);
+    int bitwidth = type.getElementType().getIntOrFloatBitWidth();
+    int minColBases = llvm::Log2_32(32 / bitwidth);
+    while (nColBases > minColBases &&
+           llvm::all_of(ll.getBasis(kCol, nColBases - 1),
+                        [](int32_t v) { return v == 0; }))
+      --nColBases;
+    return ll.resizeInDim(kCol, 1u << nColBases);
+  }
+  // Shared memory needs the allocation shape so that invertAndCompose can trim
+  // subviews. We also remove the first dimension of the allocation shape if
+  // there was a call to memdesc_index.
   return toLinearLayout(
       dropPipeliningDim(type.getAllocShape(), type.getEncoding()),
       type.getEncoding());
