@@ -1381,8 +1381,9 @@ LinearLayout toLinearLayout(MemDescType type) {
     auto allocShape =
         dropPipeliningDim(type.getAllocShape(), type.getEncoding());
     auto ll = toLinearLayout(allocShape, type.getEncoding());
+    auto outDims = llvm::to_vector(ll.getOutDimNames());
     // Trim the shape
-    for (auto [dim, size] : llvm::zip_equal(ll.getOutDimNames(), shape))
+    for (auto [dim, size] : llvm::zip_equal(outDims, shape))
       ll = ll.resizeOutDim(dim, size);
 
     auto kCol = StringAttr::get(type.getContext(), "col");
