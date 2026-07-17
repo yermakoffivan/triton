@@ -32,6 +32,12 @@ def _find_frame_by_name(frame, name):
     return None
 
 
+_skip_cudagraph_test = pytest.mark.skipif(
+    os.environ.get("PROTON_SKIP_CUDAGRAPH_TEST", "0") == "1",
+    reason="CUDAGraph test skipped due to environment constraints",
+)
+
+
 @pytest.mark.parametrize("context", ["shadow", "python"])
 def test_torch(context, tmp_path: pathlib.Path, device: str):
     temp_file = tmp_path / "test_torch.hatchet"
@@ -89,11 +95,8 @@ def test_triton(tmp_path: pathlib.Path, device: str):
     assert data[0]["children"][1]["frame"]["name"] == "test2"
 
 
+@_skip_cudagraph_test
 def test_cudagraph(tmp_path: pathlib.Path, device: str):
-    # TODO(Keren): Uncomment when rocprofiler-sdk has been updated
-    if os.environ.get("PROTON_SKIP_CUDAGRAPH_TEST", "0") == "1":
-        pytest.skip("CUDagraph test is disabled")
-
     stream = torch.cuda.Stream()
     torch.cuda.set_stream(stream)
 
@@ -1470,6 +1473,7 @@ def test_nvtx_range_push_pop(enable_nvtx, fresh_knobs, tmp_path: pathlib.Path, d
     assert kernel["metrics"]["count"] == 1
 
 
+@_skip_cudagraph_test
 def test_tensor_metrics_scope(tmp_path: pathlib.Path, device: str):
     temp_file = tmp_path / "test_tensor_metrics_scope.hatchet"
     proton.start(str(temp_file.with_suffix("")))
@@ -1499,6 +1503,7 @@ def test_tensor_metrics_scope(tmp_path: pathlib.Path, device: str):
     assert test_frame["metrics"]["x_std"] == 0.0
 
 
+@_skip_cudagraph_test
 def test_tensor_metrics_hook(tmp_path: pathlib.Path, device: str):
     temp_file = tmp_path / "test_tensor_metrics_hook.hatchet"
 
@@ -1533,7 +1538,7 @@ def test_tensor_metrics_hook(tmp_path: pathlib.Path, device: str):
     assert foo_test_frame["metrics"]["flops"] == 8.0
 
 
-@pytest.mark.skipif(not is_cuda(), reason="Only CUDA backend supports metrics profiling in cudagraphs")
+@_skip_cudagraph_test
 def test_tensor_metrics_cudagraph_hook(tmp_path: pathlib.Path, device: str):
     """
     Test triton kernels launched from metadata hooks and hook="triton"
@@ -1592,7 +1597,7 @@ def test_tensor_metrics_cudagraph_hook(tmp_path: pathlib.Path, device: str):
     assert _find_frame_by_name(metadata_frame, "metadata_helper_kernel") is not None
 
 
-@pytest.mark.skipif(not is_cuda(), reason="Only CUDA backend supports metrics profiling in cudagraphs")
+@_skip_cudagraph_test
 def test_tensor_metrics_cudagraph(tmp_path: pathlib.Path, device: str):
     stream = torch.cuda.Stream()
     torch.cuda.set_stream(stream)
@@ -1682,7 +1687,7 @@ def test_tensor_metrics_cudagraph(tmp_path: pathlib.Path, device: str):
     assert scope_d_frame["metrics"]["vec"] == [0, 10, 20, 30]
 
 
-@pytest.mark.skipif(not is_cuda(), reason="Only CUDA backend supports metrics profiling in cudagraphs")
+@_skip_cudagraph_test
 def test_tensor_metrics_cudagraph_deactivate(tmp_path: pathlib.Path, device: str):
     stream = torch.cuda.Stream()
     torch.cuda.set_stream(stream)
@@ -1735,7 +1740,7 @@ def test_tensor_metrics_cudagraph_deactivate(tmp_path: pathlib.Path, device: str
         assert c_frame["metrics"]["count"] == 10
 
 
-@pytest.mark.skipif(not is_cuda(), reason="Only CUDA backend supports metrics profiling in cudagraphs")
+@_skip_cudagraph_test
 def test_tensor_metrics_multi_device_cudagraph(tmp_path: pathlib.Path):
     if torch.cuda.device_count() < 2:
         pytest.skip("Requires at least two CUDA devices")
