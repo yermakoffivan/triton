@@ -676,6 +676,9 @@ bool canBeRemat(Operation *op) {
     return !isExpensiveLoadOrStore(op);
   if (isa<AtomicRMWOp, AtomicCASOp, DotOpInterface>(op))
     return false;
+  // Inline assembly and external calls are elementwise but may be impure.
+  if (op->hasTrait<OpTrait::Elementwise>() && !isPure(op))
+    return false;
   if (auto gather = dyn_cast<GatherOp>(op))
     return !gather.getEfficientLayout();
   if (auto reshape = dyn_cast<ReshapeOp>(op))
