@@ -19,8 +19,8 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32} {
 module attributes {"ttg.num-ctas" = 2 : i32, "ttg.num-warps" = 4 : i32} {
   // CHECK-LABEL: clc_try_cancel_multicast
   tt.func @clc_try_cancel_multicast(%result: !ttg.memdesc<2xi64, #shared_clc, #smem>, %mbar: !ttg.memdesc<2xi64, #barrier, #smem>, %phase: i32, %pred: i1) {
-    // CHECK: mbarrier.arrive.expect_tx.release.cluster.shared::cta.b64
-    ttng.barrier_expect %mbar, 16, %pred : !ttg.memdesc<2xi64, #barrier, #smem>
+    // CHECK: mbarrier.arrive.expect_tx.release.cluster.shared::cluster.b64
+    ttng.barrier_expect %mbar, 16 {from_ctas = 0 : i32}, %pred : !ttg.memdesc<2xi64, #barrier, #smem>
     // CHECK: clusterlaunchcontrol.try_cancel.async.shared::cta.mbarrier::complete_tx::bytes.multicast::cluster::all.b128
     ttng.clc_try_cancel %result, %mbar : !ttg.memdesc<2xi64, #shared_clc, #smem>, !ttg.memdesc<2xi64, #barrier, #smem>
     // CHECK: mbarrier.try_wait.parity.acquire.cluster.shared::cta.b64

@@ -178,9 +178,15 @@ struct ConvertTritonGPUToLLVM
         computeCapability >= 90 &&
         triton::gpu::TritonGPUDialect::getNumCTAs(mod) >= 2 &&
         mod.walk([](Operation *op) {
-             return ttng::isDistributedMultiCTAOp(op, /*isRead=*/true)
-                        ? WalkResult::interrupt()
-                        : WalkResult::advance();
+             if (ttng::isDistributedMultiCTAOp(op, /*isRead=*/true))
+               return WalkResult::interrupt();
+             if (auto expect = dyn_cast<ttng::BarrierExpectOp>(op);
+                 expect && expect.getFromCtas())
+               return WalkResult::interrupt();
+             if (auto arrive = dyn_cast<ttng::ArriveBarrierOp>(op);
+                 arrive && arrive.getFromCtas())
+               return WalkResult::interrupt();
+             return WalkResult::advance();
            })
             .wasInterrupted();
     populateBarrierOpToLLVMPatterns(typeConverter, patterns, benefit,

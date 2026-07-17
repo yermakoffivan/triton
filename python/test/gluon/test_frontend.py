@@ -637,6 +637,25 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, ttg.targ
 
 
 @gluon.jit
+def mbarrier_from_ctas_kernel():
+    bar = mbarrier.allocate_mbarrier()
+    mbarrier.expect(bar, 4, from_ctas=5)
+    mbarrier.arrive(bar, count=1, from_ctas=5)
+    mbarrier.expect(bar, 4, from_ctas=7)
+    mbarrier.arrive(bar, count=1, from_ctas=7)
+
+
+@pytest.mark.parametrize("target", [HOPPER_TARGET, BLACKWELL_TARGET])
+def test_mbarrier_from_ctas(target):
+    mod = run_parser(mbarrier_from_ctas_kernel, *make_args(num_ctas=8), target=target)
+    ir = anonymize_ir(mod.str_nodebug())
+    assert re.search(r"ttng\.barrier_expect %\d+, 4 \{from_ctas = 5 : i32\}, %true", ir)
+    assert re.search(r"ttng\.arrive_barrier %\d+, 1, %true_\d+ \{from_ctas = 5 : i32\}", ir)
+    assert re.search(r"ttng\.barrier_expect %\d+, 4 \{from_ctas = 7 : i32\}, %true", ir)
+    assert re.search(r"ttng\.arrive_barrier %\d+, 1, %true_\d+ \{from_ctas = 7 : i32\}", ir)
+
+
+@gluon.jit
 def async_shared_store_kernel():
     layout: ttgl.constexpr = ttgl.BlockedLayout([1], [32], [4], [0], cga_layout=[[0]])
     shared_layout: ttgl.constexpr = ttgl.SwizzledSharedLayout(1, 1, 1, order=[0], cga_layout=[[0]])

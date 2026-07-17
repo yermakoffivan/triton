@@ -164,6 +164,19 @@ module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32} {
   }
 }
 
+#barrier_from_ctas = #ttg.swizzled_shared<{vec = 1, perPhase = 1, maxPhase = 1, order = [0], CGALayout = [[1], [2]]}>
+#smem_from_ctas = #ttg.shared_memory
+module attributes {"ttg.num-ctas" = 4 : i32, "ttg.num-warps" = 4 : i32} {
+  // CHECK-LABEL: @barrier_from_ctas
+  tt.func @barrier_from_ctas(%barrier: !ttg.memdesc<4xi64, #barrier_from_ctas, #smem_from_ctas, mutable>, %pred: i1) {
+    // CHECK-NEXT: ttng.barrier_expect %arg0, 16 {from_ctas = 1 : i32}, %arg1 : !ttg.memdesc<4xi64, #shared3, #smem, mutable>
+    ttng.barrier_expect %barrier, 16 {from_ctas = 1 : i32}, %pred : !ttg.memdesc<4xi64, #barrier_from_ctas, #smem_from_ctas, mutable>
+    // CHECK-NEXT: ttng.arrive_barrier %arg0, 1, %arg1 {from_ctas = 1 : i32} : !ttg.memdesc<4xi64, #shared3, #smem, mutable>
+    ttng.arrive_barrier %barrier, 1, %pred {from_ctas = 1 : i32} : !ttg.memdesc<4xi64, #barrier_from_ctas, #smem_from_ctas, mutable>
+    tt.return
+  }
+}
+
 // Tests for TMA im2col (3D/4D/5D) and tiled mode
 #nvmma_128 = #ttg.nvmma_shared<{swizzlingByteWidth = 128, transposed = false, elementBitWidth = 16}>
 #shared3 = #ttg.swizzled_shared<{vec = 1, perPhase = 1, maxPhase = 1, order = [0]}>

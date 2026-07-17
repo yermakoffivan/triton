@@ -298,15 +298,26 @@ def TTNG_BarrierExpectOp : TTNG_Op<"barrier_expect", [
   let description = [{
     This signals the barrier that `size` bytes are expected to be copied. The
     associated barrier wait will block until the expected number of bytes has
-    been copied.
+    been copied. The optional `from_ctas` attribute is a CTA-ID
+    basis-selection mask: set bits are preserved and unset bits are zeroed
+    when selecting the CTA that routes the arrival to each per-CTA barrier.
   }];
 
   let hasVerifier = 1;
+  let hasCanonicalizeMethod = 1;
   let arguments = (ins
     Arg<TTG_MemDescType, "", [MemWrite<SharedMemory>]>:$alloc,
     I32Attr:$size,
-    I1:$pred
+    I1:$pred,
+    OptionalAttr<I32Attr>:$from_ctas
   );
+
+  let builders = [
+    OpBuilder<(ins "Value":$alloc, "uint32_t":$size, "Value":$pred), [{
+      build($_builder, $_state, alloc, $_builder.getI32IntegerAttr(size), pred,
+            /*from_ctas=*/IntegerAttr());
+    }]>
+  ];
 
   let assemblyFormat = [{
     $alloc `,` $size attr-dict `,` $pred `:` qualified(type($alloc))
@@ -372,7 +383,10 @@ def TTNG_ArriveBarrierOp : TTNG_Op<"arrive_barrier", [
     of at least 1 and decreases the pending arrival count of the mbarrier by
     the specified count.
 
-    The operation accepts an optional predicate.
+    The operation accepts an optional predicate and `from_ctas` attribute. The
+    latter is a CTA-ID basis-selection mask: set bits are preserved and unset
+    bits are zeroed when selecting the CTA that routes the arrival to each
+    per-CTA barrier.
 
     Example:
 
@@ -385,7 +399,8 @@ def TTNG_ArriveBarrierOp : TTNG_Op<"arrive_barrier", [
   let arguments = (ins
     Arg<TTG_MemDescType, "", [MemRead<SharedMemory>, MemWrite<SharedMemory>]>:$alloc,
     I32Attr:$count,
-    Optional<I1>:$pred
+    Optional<I1>:$pred,
+    OptionalAttr<I32Attr>:$from_ctas
   );
 
   let assemblyFormat = [{
@@ -394,11 +409,17 @@ def TTNG_ArriveBarrierOp : TTNG_Op<"arrive_barrier", [
 
   let builders = [
     OpBuilder<(ins "Value":$alloc, "uint32_t":$count), [{
-      return build($_builder, $_state, alloc, count, /*pred=*/Value());
+      build($_builder, $_state, alloc, $_builder.getI32IntegerAttr(count),
+            /*pred=*/Value(), /*from_ctas=*/IntegerAttr());
+    }]>,
+    OpBuilder<(ins "Value":$alloc, "uint32_t":$count, "Value":$pred), [{
+      build($_builder, $_state, alloc, $_builder.getI32IntegerAttr(count), pred,
+            /*from_ctas=*/IntegerAttr());
     }]>
   ];
 
   let hasVerifier = 1;
+  let hasCanonicalizeMethod = 1;
 }
 
 def TTNG_AsyncCopyMbarrierArriveOp : TTNG_Op<"async_copy_mbarrier_arrive", [

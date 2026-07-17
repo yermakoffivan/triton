@@ -30,6 +30,7 @@
 #include "triton/Conversion/TritonGPUToLLVM/Utility.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
+#include "llvm/Support/MathExtras.h"
 
 #include "Utility.h"
 
@@ -55,6 +56,35 @@ Value getElectWarp0OrThread0(const NVIDIA::TargetInfo &targetInfo,
     auto tid = getThreadId(*b.builder, b.loc);
     return b.icmp_eq(tid, b.i32_val(0));
   }
+}
+
+std::pair<Value, Value>
+getFromCTAsPredicateAndAddress(Location loc,
+                               ConversionPatternRewriter &rewriter,
+                               Value barrierPtr, uint32_t fromCTAs) {
+  auto b = TritonLLVMOpBuilder(loc, rewriter);
+  uint32_t broadcastMask =
+      (triton::gpu::lookupNumCTAs(rewriter) - 1) & ~fromCTAs;
+  uint32_t numRecipients = 1u << llvm::popcount(broadcastMask);
+  Type i32Ty = rewriter.getIntegerType(32);
+
+  Value id = getThreadId(rewriter, loc);
+  Value pred = b.icmp_ult(id, b.i32_val(numRecipients));
+  Value ctaId = NVVM::ClusterId::create(rewriter, loc, i32Ty);
+  Value sourceCTA = b.and_(ctaId, b.i32_val(broadcastMask));
+  pred = b.and_(pred, b.icmp_eq(sourceCTA, b.i32_val(0)));
+
+  Value peerOffset = b.i32_val(0);
+  unsigned srcBit = 0;
+  for (uint32_t mask = broadcastMask; mask; mask &= mask - 1, ++srcBit) {
+    unsigned dstBit = llvm::countr_zero(mask);
+    Value bit = b.and_(id, b.i32_val(1u << srcBit));
+    peerOffset = b.or_(peerOffset, b.shl(bit, b.i32_val(dstBit + 24 - srcBit)));
+  }
+  Value barrierInt = b.ptrtoint(i32Ty, barrierPtr);
+  Value peerBarrierInt = b.xor_(barrierInt, peerOffset);
+  Value peerBarrierPtr = b.inttoptr(barrierPtr.getType(), peerBarrierInt);
+  return {pred, peerBarrierPtr};
 }
 
 struct FenceAsyncSharedOpConversion
@@ -214,11 +244,16 @@ struct BarrierExpectConversion
     // than an elect: LOP3.LUT vs. ELECT + ISETP.EQ.U32.AND.
     Value id = getThreadId(rewriter, loc);
     Value pred = b.icmp_eq(id, b.i32_val(0));
-    pred = b.and_(pred, adaptor.getPred());
     bool isCrossClusterBarrier =
         LLVM::NVIDIA::getCGABroadcastMask(barrierTy) != 0;
-    Value leaderBarrierPtr = LLVM::NVIDIA::getLeaderAddress(
+    Value barrierPtr = LLVM::NVIDIA::getLeaderAddress(
         loc, rewriter, smemObj.getBase(), barrierTy);
+    if (std::optional<uint32_t> fromCTAs = op.getFromCtas()) {
+      std::tie(pred, barrierPtr) = getFromCTAsPredicateAndAddress(
+          loc, rewriter, smemObj.getBase(), *fromCTAs);
+      isCrossClusterBarrier = true;
+    }
+    pred = b.and_(pred, adaptor.getPred());
 
     ::mlir::triton::PTXBuilder expectPtxBuilder;
     const std::string expectPtx =
@@ -229,7 +264,7 @@ struct BarrierExpectConversion
         ".b64 _, [$1], " + std::to_string(op.getSize()) + ";";
     auto &expectOp = *expectPtxBuilder.create(expectPtx);
     expectOp({expectPtxBuilder.newOperand(pred, "b"),
-              expectPtxBuilder.newOperand(leaderBarrierPtr, "r")},
+              expectPtxBuilder.newOperand(barrierPtr, "r")},
              /*onlyAttachMLIRArgs=*/true);
     auto voidTy = void_ty(op->getContext());
     expectPtxBuilder.launch(rewriter, loc, voidTy);
@@ -363,14 +398,18 @@ struct ArriveBarrierOpConversion
     // than an elect: LOP3.LUT vs. ELECT + ISETP.EQ.U32.AND.
     Value id = getThreadId(rewriter, loc);
     Value pred = b.icmp_eq(id, b.i32_val(0));
-    if (op.getPred())
-      pred = b.and_(pred, adaptor.getPred());
 
     bool isCrossClusterBarrier =
         LLVM::NVIDIA::getCGABroadcastMask(barrierTy) != 0;
-
     Value barrierPtr = LLVM::NVIDIA::getLeaderAddress(
         loc, rewriter, smemObj.getBase(), barrierTy);
+    if (std::optional<uint32_t> fromCTAs = op.getFromCtas()) {
+      std::tie(pred, barrierPtr) = getFromCTAsPredicateAndAddress(
+          loc, rewriter, smemObj.getBase(), *fromCTAs);
+      isCrossClusterBarrier = true;
+    }
+    if (op.getPred())
+      pred = b.and_(pred, adaptor.getPred());
     // TODO: Add phase result as needed.
     std::stringstream ptxAsm;
     ptxAsm << "@$0 mbarrier.arrive."
